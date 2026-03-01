@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Git pre-commit hook — security checks via project venv.
+# Install: make install-hooks
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+VENV="$ROOT/.venv"
+BANDIT="$VENV/bin/bandit"
+PASS=0
+
+# ── 1. Check dev environment ───────────────────────────────────────────────
+if [ ! -x "$BANDIT" ]; then
+  echo "[pre-commit] ERROR: bandit not found at $BANDIT"
+  echo "  Run:  make venv   to set up the dev environment."
+  exit 1
+fi
+
+# ── 2. bandit scan on staged Python files ──────────────────────────────────
+STAGED_PY=$(git diff --cached --name-only --diff-filter=ACM | grep '\.py$' || true)
+if [ -n "$STAGED_PY" ]; then
+  echo "[pre-commit] Running bandit on staged Python files..."
+  if ! echo "$STAGED_PY" | xargs "$BANDIT" -ll -q --; then
+    echo ""
+    echo "[pre-commit] BLOCKED: bandit found security issues above."
+    echo "  Fix the issues, then re-stage and commit."
+    echo "  Emergency bypass: git commit --no-verify  (use sparingly)"
+    PASS=1
+  else
+    echo "[pre-commit] bandit: OK"
+  fi
+else
+  echo "[pre-commit] bandit: no Python files staged, skipping."
+fi
+
+# ── 3. Block accidentally staged sensitive file types ──────────────────────
+SENSITIVE=$(git diff --cached --name-only --diff-filter=ACM \
+  | grep -Ei '\.(json|pem|key|p12|pfx|crt|cer|log|tmp)$|^\.env(\.|$)|/\.env(\.|$)' \
+  || true)
+if [ -n "$SENSITIVE" ]; then
+  echo ""
+  echo "[pre-commit] BLOCKED: the following staged files may be sensitive:"
+  echo "$SENSITIVE" | sed 's/^/  /'
+  echo "  Unstage with: git restore --staged <file>"
+  echo "  Emergency bypass: git commit --no-verify  (use sparingly)"
+  PASS=1
+fi
+
+if [ "$PASS" -eq 0 ]; then
+  echo "[pre-commit] All checks passed."
+fi
+
+exit "$PASS"

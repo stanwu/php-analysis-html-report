@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Generated reports / artifacts
+report.html
+refer-report.html
+*.html
+
+# Data exports (often sensitive / generated)
+*.json
+
+# Docs/notes (often local-only for this repo)
+*.md
+!README.md
+!codebase-analysis-html-report-prompt.md
+
+# Logs / temp
+*.log
+*.tmp
+tmp/
+temp/
+
+# Secrets / credentials
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+id_rsa
+id_ed25519
+**/secrets.*

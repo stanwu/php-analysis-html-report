@@ -1,0 +1,2 @@
+# Dev/security dependencies (not required to run the tool itself)
+bandit>=1.8
