@@ -342,15 +342,15 @@ HTML_TEMPLATE = r"""<!doctype html>
           <div class="section-card">
             <h2>Charts <span class="muted" style="font-weight:normal;font-size:12px;">(requires online mode)</span></h2>
             <div class="tabs">
-              <div class="tab active" data-tab="treemap">Directory map</div>
+              <div class="tab" data-tab="treemap">Directory map</div>
               <div class="tab" data-tab="branches">Branches dist.</div>
               <div class="tab" data-tab="depth">Depth dist.</div>
-              <div class="tab" data-tab="hotspots">Hotspots</div>
+              <div class="tab active" data-tab="hotspots">Hotspots</div>
             </div>
-            <div id="chartTreemap" class="chart"></div>
+            <div id="chartTreemap" class="chart hidden"></div>
             <div id="chartBranches" class="chart hidden"></div>
             <div id="chartDepth" class="chart hidden"></div>
-            <div id="chartHotspots" class="chart hidden"></div>
+            <div id="chartHotspots" class="chart"></div>
             <div class="muted" style="font-size:12px;margin-top:6px;">Offline: charts unavailable — file table and filters remain fully functional.</div>
           </div>
 
@@ -678,16 +678,16 @@ HTML_TEMPLATE = r"""<!doctype html>
         Plotly.newPlot("chartTreemap",[{type:"treemap",ids,labels,parents,values,marker:{colors},textinfo:"label+value",hovertemplate:"<b>%{label}</b><br>Branches: %{value}<extra></extra>"}],
           {margin:{l:0,r:0,t:10,b:0},paper_bgcolor:"rgba(0,0,0,0)",font:{color:"#0f172a"}},{displayModeBar:false,responsive:true});
 
-        // Histograms
-        const binsB=overview.distributions?.total_branches?.bins||[];
-        const binsD=overview.distributions?.max_depth?.bins||[];
+        // Histograms — top 5 bins by count
+        const binsB=(overview.distributions?.total_branches?.bins||[]).slice().sort((a,b)=>b.count-a.count).slice(0,5);
+        const binsD=(overview.distributions?.max_depth?.bins||[]).slice().sort((a,b)=>b.count-a.count).slice(0,5);
         Plotly.newPlot("chartBranches",[{type:"bar",x:binsB.map(b=>b.label),y:binsB.map(b=>b.count),marker:{color:"rgba(96,165,250,.75)"}}],
-          {title:"Branches distribution",...layout0,xaxis:axisCommon,yaxis:{gridcolor:gridColor,zerolinecolor:gridColor,tickfont:{color:"#0f172a"}}},{displayModeBar:false,responsive:true});
+          {title:"Top 5 branch ranges",...layout0,xaxis:axisCommon,yaxis:{gridcolor:gridColor,zerolinecolor:gridColor,tickfont:{color:"#0f172a"}}},{displayModeBar:false,responsive:true});
         Plotly.newPlot("chartDepth",[{type:"bar",x:binsD.map(b=>b.label),y:binsD.map(b=>b.count),marker:{color:"rgba(52,211,153,.75)"}}],
-          {title:"Depth distribution",...layout0,xaxis:axisCommon,yaxis:{gridcolor:gridColor,zerolinecolor:gridColor,tickfont:{color:"#0f172a"}}},{displayModeBar:false,responsive:true});
+          {title:"Top 5 depth ranges",...layout0,xaxis:axisCommon,yaxis:{gridcolor:gridColor,zerolinecolor:gridColor,tickfont:{color:"#0f172a"}}},{displayModeBar:false,responsive:true});
 
-        // Hotspots bar
-        const hot=overview.hotspots?.by_branches||[];
+        // Hotspots bar — top 5 files
+        const hot=(overview.hotspots?.by_branches||[]).slice(0,5);
         Plotly.newPlot("chartHotspots",[{type:"bar",x:hot.map(r=>r.total_branches).reverse(),y:hot.map(r=>r.path).reverse(),orientation:"h",marker:{color:"rgba(251,191,36,.75)"}}],
           {title:"Top hotspots by branches",margin:{l:220,r:10,t:36,b:40},paper_bgcolor:"rgba(0,0,0,0)",plot_bgcolor:"rgba(0,0,0,0)",font:{color:"#0f172a"},
            xaxis:{gridcolor:gridColor,zerolinecolor:gridColor,tickfont:{color:"#0f172a"}},yaxis:{gridcolor:gridColor,tickfont:{color:"#0f172a"}}},{displayModeBar:false,responsive:true});
