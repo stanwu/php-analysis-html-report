@@ -270,6 +270,17 @@ HTML_TEMPLATE = r"""<!doctype html>
       .btn{cursor:pointer;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:rgba(248,250,252,.9);color:var(--text);font-size:12px;}
       .btn:hover{border-color:#35507a;}
       .hidden{display:none;}
+      .dup-badge{display:inline-block;background:rgba(147,51,234,.1);color:#7c3aed;border:1px solid rgba(147,51,234,.25);border-radius:4px;padding:0 5px;font-size:10px;font-weight:600;margin-left:4px;vertical-align:middle;}
+      .dup-table{width:100%;border-collapse:collapse;font-size:12px;}
+      .dup-table th{padding:6px 8px;border-bottom:1px solid var(--border);text-align:left;font-weight:650;position:sticky;top:0;background:rgba(255,255,255,.97);white-space:nowrap;}
+      .dup-table td{padding:7px 8px;border-bottom:1px solid var(--border);vertical-align:middle;}
+      .dup-row{cursor:pointer;transition:background .1s;}
+      .dup-row:hover{background:rgba(147,51,234,.05);}
+      .dup-row.expanded{background:rgba(147,51,234,.04);}
+      .dup-detail td{padding:0;background:var(--panel2);}
+      .dup-paths{padding:8px 12px 10px 36px;font-family:var(--mono);font-size:11.5px;}
+      .dup-paths div{padding:2px 0;border-bottom:1px solid rgba(226,232,240,.5);}
+      .dup-paths div:last-child{border-bottom:none;}
       footer{margin-top:14px;color:var(--muted);font-size:11.5px;}
     </style>
   </head>
@@ -301,6 +312,8 @@ HTML_TEMPLATE = r"""<!doctype html>
                 <span class="kpi-sep">|</span>
                 <span>Max depth: <strong id="kDepth">–</strong></span>
                 <span class="kpi-sep">|</span>
+                <span id="kDupWrap" class="hidden">Duplicates: <strong id="kDupGroups">–</strong> groups / <strong id="kDupFiles">–</strong> files</span>
+                <span id="kDupSep" class="kpi-sep hidden">|</span>
                 <span id="modePill" class="badge">Loading…</span>
               </div>
             </div>
@@ -338,6 +351,15 @@ HTML_TEMPLATE = r"""<!doctype html>
             </div>
           </div>
 
+          <!-- ── Duplicates ── -->
+          <div id="dupSection" class="section-card hidden">
+            <h2>Duplicate Files <span class="muted" id="dupCountLabel" style="font-weight:normal;font-size:12px;"></span></h2>
+            <div id="dupTableWrap" style="max-height:480px;overflow:auto;"></div>
+            <div style="display:flex;justify-content:flex-end;margin-top:8px;">
+              <button class="btn" id="moreDups">Show more</button>
+            </div>
+          </div>
+
           <!-- ── Charts ── -->
           <div class="section-card">
             <h2>Charts <span class="muted" style="font-weight:normal;font-size:12px;">(requires online mode)</span></h2>
@@ -346,11 +368,13 @@ HTML_TEMPLATE = r"""<!doctype html>
               <div class="tab" data-tab="branches">Branches dist.</div>
               <div class="tab" data-tab="depth">Depth dist.</div>
               <div class="tab active" data-tab="hotspots">Hotspots</div>
+              <div class="tab" data-tab="duplicates" id="tabDuplicates" style="display:none;">Duplicates</div>
             </div>
             <div id="chartTreemap" class="chart hidden"></div>
             <div id="chartBranches" class="chart hidden"></div>
             <div id="chartDepth" class="chart hidden"></div>
             <div id="chartHotspots" class="chart"></div>
+            <div id="chartDuplicates" class="chart hidden"></div>
             <div class="muted" style="font-size:12px;margin-top:6px;">Offline: charts unavailable — file table and filters remain fully functional.</div>
           </div>
 
@@ -366,6 +390,7 @@ HTML_TEMPLATE = r"""<!doctype html>
     <script type="application/json" id="dataDirs">{{DATA_DIRS}}</script>
     <script type="application/json" id="dataFiles">{{DATA_FILES}}</script>
     <script type="application/json" id="dataDetails">{{DATA_DETAILS}}</script>
+    <script type="application/json" id="dataDuplicates">{{DATA_DUPLICATES}}</script>
 
     <script>
       /* ── Utilities ── */
@@ -407,6 +432,9 @@ HTML_TEMPLATE = r"""<!doctype html>
       const dirNodes=dirsData.nodes||{};
       const dirChildren=dirsData.children||{};
       const rootDir=(dirsData.root!==undefined)?dirsData.root:"";
+      const dupData=parseJsonScript("dataDuplicates");
+      const dupGroups=dupData.groups||[];
+      const fileDupCount=dupData.file_dup_count||{};
 
       const TB=overview.threshold_branches||5;
       const TD=overview.threshold_depth||3;
@@ -421,7 +449,9 @@ HTML_TEMPLATE = r"""<!doctype html>
       let filterSev="all";
       let filterDir=null;
       let wired=false;
+      let dupListLimit=100;
       const expandedFiles=new Set();
+      const expandedDups=new Set();
 
       /* ── Filtering helpers ── */
       function isFilteredChildDir(d){
@@ -458,6 +488,12 @@ HTML_TEMPLATE = r"""<!doctype html>
         $("kFiles").textContent=overview.total_files??"—";
         $("kBranches").textContent=overview.total_branches??"—";
         $("kDepth").textContent=overview.max_depth_overall??"—";
+        if((overview.duplicate_groups||0)>0){
+          $("kDupGroups").textContent=overview.duplicate_groups;
+          $("kDupFiles").textContent=overview.duplicate_files;
+          $("kDupWrap").classList.remove("hidden");
+          $("kDupSep").classList.remove("hidden");
+        }
       }
       function setMode(online){
         $("modePill").textContent=online?"Online mode":"Offline fallback";
@@ -474,6 +510,8 @@ HTML_TEMPLATE = r"""<!doctype html>
         if(ob>0) html+=`<span>${badge("danger","🔴 "+ob+" critical (branches > "+TB+")")}</span><span class="status-sep"></span>`;
         if(od>0) html+=`<span>${badge("warn","🟡 "+od+" deep (depth > "+TD+")")}</span><span class="status-sep"></span>`;
         if(ob===0&&od===0) html+=`<span>${badge("good","🟢 All files within threshold")}</span><span class="status-sep"></span>`;
+        const dg=overview.duplicate_groups||0;
+        if(dg>0) html+=`<span>${badge("warn","🟣 "+dg+" duplicate groups ("+overview.duplicate_waste+" redundant files)")}</span><span class="status-sep"></span>`;
         if(topMods.length){
           html+=`<span class="muted" style="font-size:11px;">Hotspot modules: `;
           html+=topMods.map(m=>`<strong class="mono">${escapeHtml(baseName(m.dir)||"(root)")}</strong> <span class="muted">${badge("danger",(m.score||0).toFixed(1))}</span>`).join(" &nbsp;");
@@ -505,7 +543,8 @@ HTML_TEMPLATE = r"""<!doctype html>
           const isExp=expandedFiles.has(f.id);
           html+=`<tr class="file-row${isExp?" expanded":""}" data-fid="${f.id}">`;
           html+=`<td><span class="expand-icon">▶</span>#${rank}${rank===1?'<span class="start-badge">START</span>':""}</td>`;
-          html+=`<td class="mono">${escapeHtml(f.path)}</td>`;
+          const dupN=f.dup||0;
+          html+=`<td class="mono">${escapeHtml(f.path)}${dupN>=2?'<span class="dup-badge">DUP ×'+dupN+'</span>':""}</td>`;
           html+=`<td>${f.b}</td><td>${f.d}</td>`;
           html+=`<td class="muted">${pct.toFixed(1)}%</td>`;
           html+=`<td>${badge(sev,sevLabel)}</td></tr>`;
@@ -595,6 +634,63 @@ HTML_TEMPLATE = r"""<!doctype html>
 
         html+="</div>";
         return html;
+      }
+
+      /* ── Duplicates table ── */
+      function renderDuplicates(){
+        if(!dupGroups.length){ $("dupSection").classList.add("hidden"); return; }
+        $("dupSection").classList.remove("hidden");
+        $("tabDuplicates").style.display="";
+        const shown=dupGroups.slice(0,dupListLimit);
+        $("dupCountLabel").textContent=`(${shown.length} of ${dupGroups.length} groups, ${overview.duplicate_files||0} files total)`;
+        $("moreDups").disabled=dupListLimit>=dupGroups.length;
+        $("moreDups").textContent=dupListLimit>=dupGroups.length?"All shown":"Show more";
+
+        let html='<table class="dup-table"><thead><tr>';
+        html+='<th style="width:50px;">#</th><th>Filename</th>';
+        html+='<th style="width:70px;">Copies</th><th style="width:120px;">Checksum</th>';
+        html+='</tr></thead><tbody>';
+
+        for(let i=0;i<shown.length;i++){
+          const g=shown[i]; const rank=i+1;
+          const isExp=expandedDups.has(i);
+          const name=baseName(g.paths[0]||"");
+          html+=`<tr class="dup-row${isExp?" expanded":""}" data-di="${i}">`;
+          html+=`<td><span class="expand-icon">▶</span>${rank}</td>`;
+          html+=`<td class="mono">${escapeHtml(name)}</td>`;
+          html+=`<td><span class="dup-badge">×${g.count}</span></td>`;
+          html+=`<td class="mono muted" style="font-size:11px;">${escapeHtml(g.checksum)}…</td></tr>`;
+          html+=`<tr class="dup-detail${isExp?"":" hidden"}" id="dd-${i}">`;
+          html+=`<td colspan="4"><div class="dup-paths">`;
+          if(isExp) for(const p of g.paths) html+=`<div>${escapeHtml(p)}</div>`;
+          html+=`</div></td></tr>`;
+        }
+        html+="</tbody></table>";
+        $("dupTableWrap").innerHTML=html;
+
+        for(const row of document.querySelectorAll(".dup-row")){
+          row.addEventListener("click",()=>toggleDupDetail(parseInt(row.dataset.di)));
+        }
+      }
+      function toggleDupDetail(idx){
+        const dr=$("dd-"+idx); if(!dr) return;
+        const isHidden=dr.classList.contains("hidden");
+        const row=document.querySelector(".dup-row[data-di='"+idx+"']");
+        if(isHidden){
+          expandedDups.add(idx);
+          dr.classList.remove("hidden");
+          if(row) row.classList.add("expanded");
+          const paths=dr.querySelector(".dup-paths");
+          if(paths&&!paths.dataset.rendered){
+            const g=dupGroups[idx];
+            paths.innerHTML=g.paths.map(p=>"<div>"+escapeHtml(p)+"</div>").join("");
+            paths.dataset.rendered="1";
+          }
+        } else {
+          expandedDups.delete(idx);
+          dr.classList.add("hidden");
+          if(row) row.classList.remove("expanded");
+        }
       }
 
       /* ── Sidebar directory tree ── */
@@ -691,17 +787,25 @@ HTML_TEMPLATE = r"""<!doctype html>
         Plotly.newPlot("chartHotspots",[{type:"bar",x:hot.map(r=>r.total_branches).reverse(),y:hot.map(r=>r.path).reverse(),orientation:"h",marker:{color:"rgba(251,191,36,.75)"}}],
           {title:"Top hotspots by branches",margin:{l:220,r:10,t:36,b:40},paper_bgcolor:"rgba(0,0,0,0)",plot_bgcolor:"rgba(0,0,0,0)",font:{color:"#0f172a"},
            xaxis:{gridcolor:gridColor,zerolinecolor:gridColor,tickfont:{color:"#0f172a"}},yaxis:{gridcolor:gridColor,tickfont:{color:"#0f172a"}}},{displayModeBar:false,responsive:true});
+
+        // Duplicates bar — top 10 groups by copy count
+        if(dupGroups.length){
+          const topDup=dupGroups.slice(0,10);
+          Plotly.newPlot("chartDuplicates",[{type:"bar",x:topDup.map(g=>g.count).reverse(),y:topDup.map(g=>baseName(g.paths[0]||"")).reverse(),orientation:"h",marker:{color:"rgba(147,51,234,.65)"}}],
+            {title:"Top duplicate file groups by copy count",margin:{l:220,r:10,t:36,b:40},paper_bgcolor:"rgba(0,0,0,0)",plot_bgcolor:"rgba(0,0,0,0)",font:{color:"#0f172a"},
+             xaxis:{gridcolor:gridColor,zerolinecolor:gridColor,tickfont:{color:"#0f172a"},dtick:1},yaxis:{gridcolor:gridColor,tickfont:{color:"#0f172a"}}},{displayModeBar:false,responsive:true});
+        }
       }
 
       function renderOfflineDistributions(){
         if(hasPlotly) return;
-        for(const id of["chartTreemap","chartBranches","chartDepth","chartHotspots"])
+        for(const id of["chartTreemap","chartBranches","chartDepth","chartHotspots","chartDuplicates"])
           $(id).innerHTML="<div class='muted' style='padding:16px;'>Offline fallback: chart unavailable.</div>";
       }
 
       /* ── Wire tabs ── */
       function wireTabs(){
-        const tabMap={treemap:"chartTreemap",branches:"chartBranches",depth:"chartDepth",hotspots:"chartHotspots"};
+        const tabMap={treemap:"chartTreemap",branches:"chartBranches",depth:"chartDepth",hotspots:"chartHotspots",duplicates:"chartDuplicates"};
         const chartIds=Object.values(tabMap);
         for(const t of document.querySelectorAll(".tab")){
           t.addEventListener("click",()=>{
@@ -725,6 +829,7 @@ HTML_TEMPLATE = r"""<!doctype html>
           });
         }
         $("moreFiles").addEventListener("click",()=>{fileListLimit+=200;renderFileTable();});
+        $("moreDups").addEventListener("click",()=>{dupListLimit+=100;renderDuplicates();});
         $("clearDirFilter").addEventListener("click",()=>setDirFilter(null));
         $("retryOnline").addEventListener("click",()=>init(true));
         document.addEventListener("keydown",e=>{
@@ -741,6 +846,7 @@ HTML_TEMPLATE = r"""<!doctype html>
         renderStatusBar();
         renderDirTree();
         renderFileTable();
+        renderDuplicates();
 
         if(forceTryOnline){
           try{
@@ -772,6 +878,7 @@ def build_report(
     raw = json.loads(input_path.read_text(encoding="utf-8"))
     summary = raw.get("summary") or {}
     files_raw = raw.get("files") or {}
+    duplicates_raw: dict[str, list[str]] = summary.get("duplicates") or {}
 
     file_summaries: list[FileSummary] = []
     for i, path in enumerate(sorted(files_raw.keys(), key=lambda p: _norm_path(str(p)))):
@@ -784,6 +891,21 @@ def build_report(
                 max_depth=_safe_int(item.get("max_depth"), 0),
             )
         )
+
+    # Build duplicate groups cross-referenced with file_ids.
+    path_to_id = {f.path: f.file_id for f in file_summaries}
+    dup_groups: list[dict[str, Any]] = []
+    file_id_dup_count: dict[int, int] = {}
+    for checksum, paths in duplicates_raw.items():
+        norm_paths = [_norm_path(p) for p in paths]
+        fids = [path_to_id[p] for p in norm_paths if p in path_to_id]
+        if len(fids) >= 2:
+            dup_groups.append({"checksum": checksum[:12], "count": len(fids), "file_ids": fids, "paths": norm_paths})
+            for fid in fids:
+                file_id_dup_count[fid] = len(fids)
+    dup_groups.sort(key=lambda g: (-g["count"], g["checksum"]))
+    dup_total_files = sum(g["count"] for g in dup_groups)
+    dup_waste = dup_total_files - len(dup_groups)
 
     total_files = _safe_int(summary.get("total_files"), len(file_summaries))
     total_branches = _safe_int(summary.get("total_branches"), sum(f.total_branches for f in file_summaries))
@@ -862,7 +984,13 @@ def build_report(
     for d in list(dir_files.keys()):
         dir_files[d] = sorted(dir_files[d], key=lambda fid: file_summaries[fid].path)
 
-    files_index = [{"id": f.file_id, "path": f.path, "b": f.total_branches, "d": f.max_depth} for f in file_summaries]
+    files_index = [
+        {
+            "id": f.file_id, "path": f.path, "b": f.total_branches, "d": f.max_depth,
+            **({"dup": file_id_dup_count[f.file_id]} if f.file_id in file_id_dup_count else {}),
+        }
+        for f in file_summaries
+    ]
 
     # Details for top files.
     selected_ids = {f.file_id for f in sorted(file_summaries, key=lambda f: (-f.total_branches, -f.max_depth, f.path))[:max_details]}
@@ -915,11 +1043,15 @@ def build_report(
             "by_depth": [as_hotspot_row(i + 1, f) for i, f in enumerate(hotspots_by_depth)],
         },
         "distributions": {"total_branches": dist_branches, "max_depth": dist_depth},
+        "duplicate_groups": len(dup_groups),
+        "duplicate_files": dup_total_files,
+        "duplicate_waste": dup_waste,
     }
 
     dirs_obj = {"root": "", "nodes": dir_nodes, "children": children, "files": dir_files}
     files_obj = {"files": files_index}
     details_obj = {"details": details}
+    duplicates_obj = {"groups": dup_groups, "file_dup_count": file_id_dup_count}
 
     html = (
         HTML_TEMPLATE.replace("{{TITLE}}", "Codebase Complexity Report")
@@ -927,6 +1059,7 @@ def build_report(
         .replace("{{DATA_DIRS}}", _json_dumps_for_html(dirs_obj))
         .replace("{{DATA_FILES}}", _json_dumps_for_html(files_obj))
         .replace("{{DATA_DETAILS}}", _json_dumps_for_html(details_obj))
+        .replace("{{DATA_DUPLICATES}}", _json_dumps_for_html(duplicates_obj))
     )
 
     output_path.write_text(html, encoding="utf-8")

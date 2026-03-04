@@ -42,10 +42,17 @@ The script reads a JSON file with the following structure:
 {
   "summary": {
     "total_files": 3,
-    "total_branches": 42
+    "total_branches": 42,
+    "duplicates": {
+      "a1b2c3d4e5f6...": [
+        "src/Utils/Helper.php",
+        "lib/legacy/Helper.php"
+      ]
+    }
   },
   "files": {
     "src/Auth/Login.php": {
+      "checksum": "a1b2c3d4e5f6...",
       "total_branches": 18,
       "max_depth": 5,
       "branches": [
@@ -84,13 +91,17 @@ The script reads a JSON file with the following structure:
 |---|---|---|
 | `summary.total_files` | No | Overrides the computed file count |
 | `summary.total_branches` | No | Overrides the computed branch sum |
+| `summary.duplicates` | No | Map of checksum → list of duplicate file paths |
+| `files.<path>.checksum` | No | SHA-256 checksum of the file |
 | `files.<path>.total_branches` | Yes | Total branch count for the file |
 | `files.<path>.max_depth` | Yes | Maximum nesting depth in the file |
 | `files.<path>.branches` | No | Per-branch details shown in the Selection panel |
 | `files.<path>.functions` | No | Function list shown in the Selection panel |
 
-`branches` and `functions` are optional — without them the file still appears in all tables,
+`branches`, `functions`, `checksum`, and `summary.duplicates` are optional — without them the file still appears in all tables,
 hotspot lists, and the directory tree; only the detail panel will show "Full details not embedded".
+When `summary.duplicates` is present, the report shows a dedicated **Duplicate Files** section with expandable groups,
+a `DUP ×N` badge on each duplicated file in the file table, and a Duplicates chart tab.
 
 ## CLI usage
 
@@ -272,8 +283,10 @@ open sample_report.html
 | **Selection** card | Details for the currently selected file or directory |
 | **Hotspots** card | Top files ranked by branch count and by nesting depth |
 | **Files** table | Paginated list of all files, sortable by branch/depth |
-| **Charts** card | Plotly histograms of branch and depth distributions (online only) |
+| **Duplicate Files** card | Expandable table of duplicate file groups (by checksum), with copy count and full paths |
+| **Charts** card | Plotly histograms of branch/depth distributions and duplicate file chart (online only) |
 | Risk badges | `good` (score < 6), `warn` (6–9), `danger` (≥ 10) — computed per directory |
+| `DUP ×N` badge | Purple badge on files that share a checksum with N−1 other files |
 
 ## Notes on the directory tree
 
